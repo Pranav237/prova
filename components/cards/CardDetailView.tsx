@@ -77,6 +77,19 @@ const CardDetailView = () => {
   const cardRef = useRef<InteractiveCardHandle>(null);
   const scrollRef = useRef<ScrollView>(null);
 
+  /**
+   * Reaching this screen via reveal → "Open card" uses router.replace, which
+   * leaves nothing on the stack to pop. Fall back to the Cards tab so Back
+   * always has a destination instead of throwing "GO_BACK was not handled".
+   */
+  const handleBack = useCallback(() => {
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace('/(app)/(cards)');
+    }
+  }, [router]);
+
   /* ----------------------- Load session + art URL ------------------- */
 
   useEffect(() => {
@@ -358,7 +371,7 @@ const CardDetailView = () => {
     <ScreenWrapper>
       <View style={styles.header}>
         <TouchableOpacity
-          onPress={() => router.back()}
+          onPress={handleBack}
           style={styles.headerButton}
           hitSlop={8}
         >
