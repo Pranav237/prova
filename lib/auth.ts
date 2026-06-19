@@ -72,6 +72,11 @@ export const signInWithApple = async (identityToken: string, nonce: string) => {
   return result;
 };
 
+/**
+ * Signs the user out of Firebase Auth. Auth-state listeners in stores
+ * are responsible for clearing their derived state when the user becomes
+ * null, so we don't manually reset them here.
+ */
 export const signOut = () => firebaseSignOut(auth);
 
 export const resetPassword = (email: string) => sendPasswordResetEmail(auth, email);

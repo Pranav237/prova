@@ -123,6 +123,29 @@ export const typography = {
       fontSize: 13,
     },
   },
+
+  conversation: {
+    provaVoice: {
+      fontFamily: 'InstrumentSerif-Regular',
+      fontSize: 17,
+      lineHeight: 28,
+    },
+    userVoice: {
+      fontFamily: 'DMSans-Regular',
+      fontSize: 15,
+      lineHeight: 25,
+    },
+    provaVoiceReceded: {
+      fontFamily: 'InstrumentSerif-Regular',
+      fontSize: 14,
+      lineHeight: 22,
+    },
+    userVoiceReceded: {
+      fontFamily: 'DMSans-Regular',
+      fontSize: 13,
+      lineHeight: 20,
+    },
+  },
 };
 
 export const spacing = {

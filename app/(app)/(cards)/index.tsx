@@ -1,31 +1,46 @@
-import { useEffect, useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import { View, Text, FlatList, StyleSheet, RefreshControl } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import ScreenWrapper from '@/components/layout/ScreenWrapper';
 import CardThumbnail from '@/components/cards/CardThumbnail';
 import EmptyCardSlot from '@/components/cards/EmptyCardSlot';
 import { useAuthStore } from '@/stores/authStore';
-import { useCardsStore } from '@/stores/cardsStore';
-import { getArtUrl } from '@/lib/storage';
+import { getCompletedSessions } from '@/lib/firestore';
 import { colors, typography } from '@/constants/theme';
 import type { Session } from '@/lib/types';
 
 const CardsScreen = () => {
   const router = useRouter();
   const firebaseUser = useAuthStore((s) => s.firebaseUser);
-  const { sessions, loading, fetchCards } = useCardsStore();
 
-  useEffect(() => {
-    if (firebaseUser) {
-      fetchCards(firebaseUser.uid);
-    }
-  }, [firebaseUser, fetchCards]);
+  const [sessions, setSessions] = useState<Session[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const onRefresh = useCallback(() => {
-    if (firebaseUser) {
-      fetchCards(firebaseUser.uid);
+  const fetchCards = useCallback(async () => {
+    if (!firebaseUser) {
+      setSessions([]);
+      return;
     }
-  }, [firebaseUser, fetchCards]);
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await getCompletedSessions(firebaseUser.uid);
+      setSessions(data);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load cards');
+    } finally {
+      setLoading(false);
+    }
+  }, [firebaseUser]);
+
+  // Refresh every time the tab is focused so newly completed sessions show up
+  // without requiring a manual pull-to-refresh.
+  useFocusEffect(
+    useCallback(() => {
+      void fetchCards();
+    }, [fetchCards])
+  );
 
   const formatDate = (session: Session) => {
     if (!session.completedAt) return '';
@@ -37,26 +52,29 @@ const CardsScreen = () => {
     });
   };
 
-  const renderItem = useCallback(({ item }: { item: Session | 'empty' }) => {
-    if (item === 'empty') {
+  const renderItem = useCallback(
+    ({ item }: { item: Session | 'empty' }) => {
+      if (item === 'empty') {
+        return (
+          <View style={styles.gridItem}>
+            <EmptyCardSlot onPress={() => router.push('/(app)/(session)/new')} />
+          </View>
+        );
+      }
+
       return (
         <View style={styles.gridItem}>
-          <EmptyCardSlot onPress={() => router.push('/(app)/(session)')} />
+          <CardThumbnail
+            title={item.cardTitle || 'Untitled'}
+            date={formatDate(item)}
+            metallicColor={item.cardMetallicColor || '#A882FF'}
+            onPress={() => router.push(`/(app)/(cards)/${item.id}`)}
+          />
         </View>
       );
-    }
-
-    return (
-      <View style={styles.gridItem}>
-        <CardThumbnail
-          title={item.cardTitle || 'Untitled'}
-          date={formatDate(item)}
-          metallicColor={item.cardMetallicColor || '#A882FF'}
-          onPress={() => router.push(`/(app)/(cards)/${item.id}`)}
-        />
-      </View>
-    );
-  }, [router]);
+    },
+    [router]
+  );
 
   const data = [...sessions, 'empty' as const];
 
@@ -72,7 +90,7 @@ const CardsScreen = () => {
       <FlatList
         data={data}
         renderItem={renderItem}
-        keyExtractor={(item, index) =>
+        keyExtractor={(item) =>
           typeof item === 'string' ? 'empty-slot' : item.id
         }
         numColumns={2}
@@ -82,7 +100,7 @@ const CardsScreen = () => {
         refreshControl={
           <RefreshControl
             refreshing={loading}
-            onRefresh={onRefresh}
+            onRefresh={fetchCards}
             tintColor={colors.purple.DEFAULT}
           />
         }
@@ -91,9 +109,10 @@ const CardsScreen = () => {
             <View style={styles.emptyState}>
               <Text style={styles.emptyTitle}>Your collection awaits</Text>
               <Text style={styles.emptyText}>
-                Each session produces a card — a snapshot of who you were in that conversation.
-                Start your first session to begin.
+                Each session produces a card, a snapshot of who you were in
+                that conversation. Start your first session to begin.
               </Text>
+              {error && <Text style={styles.errorText}>{error}</Text>}
             </View>
           ) : null
         }
@@ -146,6 +165,12 @@ const styles = StyleSheet.create({
     color: colors.text.muted,
     textAlign: 'center',
     lineHeight: 20,
+  },
+  errorText: {
+    ...typography.body.small,
+    color: colors.danger,
+    textAlign: 'center',
+    marginTop: 16,
   },
 });
 

@@ -1,31 +1,30 @@
-import * as functions from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
 import Anthropic from '@anthropic-ai/sdk';
 import { buildConversationPrompt } from './prompts/conversation';
+import {
+  defineEndpoint,
+  HttpError,
+  requireString,
+  optionalString,
+  optionalBoolean,
+} from './http';
 
 const MIN_EXCHANGES = parseInt(process.env.MIN_EXCHANGES || '12', 10);
+/** Bumped from 1000 so wrap-up messages never get sliced mid-word. */
+const MAX_OUTPUT_TOKENS = 2500;
 
-export const processMessage = functions.onCall(
-  { timeoutSeconds: 120, secrets: ['ANTHROPIC_API_KEY'] },
-  async (request) => {
-    const { userId, sessionId, userMessage, isSessionStart } = request.data as {
-      userId: string;
-      sessionId: string;
-      userMessage?: string;
-      isSessionStart?: boolean;
-    };
+export const processMessage = defineEndpoint(
+  async ({ uid, body }) => {
+    const sessionId = requireString(body, 'sessionId');
+    const userMessage = optionalString(body, 'userMessage');
+    const isSessionStart = optionalBoolean(body, 'isSessionStart');
+    const isResume = optionalBoolean(body, 'isResume');
 
-    if (!userId || !sessionId) {
-      throw new functions.HttpsError(
+    if (!isSessionStart && !isResume && (!userMessage || userMessage.length === 0)) {
+      throw new HttpError(
+        400,
         'invalid-argument',
-        'userId and sessionId are required'
-      );
-    }
-
-    if (!isSessionStart && !userMessage) {
-      throw new functions.HttpsError(
-        'invalid-argument',
-        'userMessage is required unless isSessionStart is true'
+        'userMessage is required unless isSessionStart or isResume is true.'
       );
     }
 
@@ -35,18 +34,16 @@ export const processMessage = functions.onCall(
 
     const db = admin.firestore();
 
-    const sessionDoc = await db
-      .doc(`users/${userId}/sessions/${sessionId}`)
-      .get();
+    const sessionDoc = await db.doc(`users/${uid}/sessions/${sessionId}`).get();
 
     if (!sessionDoc.exists) {
-      throw new functions.HttpsError('not-found', 'Session not found');
+      throw new HttpError(404, 'not-found', 'Session not found.');
     }
 
     const sessionData = sessionDoc.data()!;
 
     const messagesSnap = await db
-      .collection(`users/${userId}/sessions/${sessionId}/messages`)
+      .collection(`users/${uid}/sessions/${sessionId}/messages`)
       .orderBy('createdAt', 'asc')
       .get();
 
@@ -61,6 +58,18 @@ export const processMessage = functions.onCall(
 
     if (isSessionStart) {
       conversationHistory.push({ role: 'user', content: '[begin]' });
+    } else if (isResume) {
+      // Continue from existing history; the last turn must already be a user msg.
+      if (
+        conversationHistory.length === 0 ||
+        conversationHistory[conversationHistory.length - 1].role !== 'user'
+      ) {
+        throw new HttpError(
+          409,
+          'failed-precondition',
+          'Nothing to resume: last message is not from the user.'
+        );
+      }
     } else {
       conversationHistory.push({ role: 'user', content: userMessage! });
     }
@@ -68,7 +77,7 @@ export const processMessage = functions.onCall(
     let previousPDFContent: string | undefined;
     if (sessionData.intent === 'revisiting' && sessionData.revisitingSessionId) {
       const prevSession = await db
-        .doc(`users/${userId}/sessions/${sessionData.revisitingSessionId}`)
+        .doc(`users/${uid}/sessions/${sessionData.revisitingSessionId}`)
         .get();
       if (prevSession.exists) {
         const prevData = prevSession.data();
@@ -80,7 +89,7 @@ export const processMessage = functions.onCall(
 
     let pastSessionSummaries: string | undefined;
     const recentSessions = await db
-      .collection(`users/${userId}/sessions`)
+      .collection(`users/${uid}/sessions`)
       .where('status', '==', 'complete')
       .orderBy('completedAt', 'desc')
       .limit(2)
@@ -104,7 +113,8 @@ export const processMessage = functions.onCall(
     }
 
     const onboardingAnswers = sessionData.onboardingAnswers as
-      Array<{ question: string; answer: string; reaction: string }> | undefined;
+      | Array<{ question: string; answer: string; reaction: string }>
+      | undefined;
 
     const systemPrompt = buildConversationPrompt({
       intent: sessionData.intent,
@@ -120,7 +130,7 @@ export const processMessage = functions.onCall(
     try {
       const response = await anthropic.messages.create({
         model: 'claude-sonnet-4-6',
-        max_tokens: 1000,
+        max_tokens: MAX_OUTPUT_TOKENS,
         system: systemPrompt,
         messages: conversationHistory,
       });
@@ -151,7 +161,7 @@ export const processMessage = functions.onCall(
         exchangeNumber: currentExchangeCount,
       };
 
-      await db.doc(`users/${userId}/sessions/${sessionId}`).update({
+      await db.doc(`users/${uid}/sessions/${sessionId}`).update({
         exchangeCount: currentExchangeCount,
         lastMessageAt: admin.firestore.FieldValue.serverTimestamp(),
       });
@@ -159,7 +169,8 @@ export const processMessage = functions.onCall(
       return { response: responseText, meta };
     } catch (error) {
       console.error('Error processing message:', error);
-      throw new functions.HttpsError('internal', 'Failed to process message');
+      throw new HttpError(500, 'internal', 'Failed to process message.');
     }
-  }
+  },
+  { secrets: ['ANTHROPIC_API_KEY'], timeoutSeconds: 120 }
 );

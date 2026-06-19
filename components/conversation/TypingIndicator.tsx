@@ -5,57 +5,42 @@ import Animated, {
   withRepeat,
   withSequence,
   withTiming,
-  withDelay,
 } from 'react-native-reanimated';
 import { useEffect } from 'react';
-import { colors } from '@/constants/theme';
 
-const Dot = ({ delay }: { delay: number }) => {
-  const opacity = useSharedValue(0.3);
+const TypingIndicator = () => {
+  const opacity = useSharedValue(0.15);
 
   useEffect(() => {
-    opacity.value = withDelay(
-      delay,
-      withRepeat(
-        withSequence(
-          withTiming(1, { duration: 400 }),
-          withTiming(0.3, { duration: 400 })
-        ),
-        -1
-      )
+    opacity.value = withRepeat(
+      withSequence(
+        withTiming(0.5, { duration: 1200 }),
+        withTiming(0.15, { duration: 1200 })
+      ),
+      -1
     );
-  }, [delay, opacity]);
+  }, [opacity]);
 
   const animatedStyle = useAnimatedStyle(() => ({
     opacity: opacity.value,
   }));
 
-  return <Animated.View style={[styles.dot, animatedStyle]} />;
-};
-
-const TypingIndicator = () => {
   return (
     <View style={styles.container}>
-      <Dot delay={0} />
-      <Dot delay={200} />
-      <Dot delay={400} />
+      <Animated.View style={[styles.pulseBar, animatedStyle]} />
     </View>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
+    paddingVertical: 16,
   },
-  dot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: 'rgba(168,130,255,0.3)',
+  pulseBar: {
+    width: 2,
+    height: 28,
+    backgroundColor: 'rgba(168,130,255,0.6)',
+    borderRadius: 1,
   },
 });
 

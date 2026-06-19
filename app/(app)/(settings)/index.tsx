@@ -88,10 +88,6 @@ const SettingsScreen = () => {
         <View style={styles.spacer} />
 
         <View style={styles.section}>
-          <SettingsRow
-            label="Past sessions"
-            onPress={() => router.push('/(app)/(settings)/sessions')}
-          />
           <SettingsRow label="Privacy policy" onPress={() => {}} />
           <SettingsRow label="Terms of service" onPress={() => {}} />
         </View>

@@ -1,18 +1,10 @@
-import * as functions from 'firebase-functions/v2/https';
 import Anthropic from '@anthropic-ai/sdk';
 import { ONBOARDING_SYSTEM_PROMPT, RETURNING_USER_PROMPT } from './prompts/onboarding';
+import { defineEndpoint, HttpError, optionalBoolean } from './http';
 
-export const generateOnboarding = functions.onCall(
-  { secrets: ['ANTHROPIC_API_KEY'] },
-  async (request) => {
-    const { userId, isFirstSession } = request.data as {
-      userId: string;
-      isFirstSession: boolean;
-    };
-
-    if (!userId) {
-      throw new functions.HttpsError('invalid-argument', 'userId is required');
-    }
+export const generateOnboarding = defineEndpoint(
+  async ({ body }) => {
+    const isFirstSession = optionalBoolean(body, 'isFirstSession');
 
     const anthropic = new Anthropic({
       apiKey: (process.env.ANTHROPIC_API_KEY || '').trim(),
@@ -51,7 +43,8 @@ export const generateOnboarding = functions.onCall(
       return { prompts: parsed.prompts };
     } catch (error) {
       console.error('Error generating onboarding:', error);
-      throw new functions.HttpsError('internal', 'Failed to generate onboarding prompts');
+      throw new HttpError(500, 'internal', 'Failed to generate onboarding prompts.');
     }
-  }
+  },
+  { secrets: ['ANTHROPIC_API_KEY'], timeoutSeconds: 60 }
 );

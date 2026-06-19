@@ -1,28 +1,37 @@
 import { useEffect, useRef } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
 import Animated, { FadeIn, FadeInUp } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAuthStore } from '@/stores/authStore';
 import { colors, typography } from '@/constants/theme';
 
+const MIN_SPLASH_MS = 1200;
+
 const SplashScreen = () => {
   const router = useRouter();
   const firebaseUser = useAuthStore((s) => s.firebaseUser);
   const initialized = useAuthStore((s) => s.initialized);
   const hasNavigated = useRef(false);
+  const mountedAt = useRef(Date.now());
 
   useEffect(() => {
     if (!initialized || hasNavigated.current) return;
 
+    // Make sure the splash is on screen for at least MIN_SPLASH_MS so the
+    // tagline reveal animation finishes before we navigate away.
+    const elapsed = Date.now() - mountedAt.current;
+    const wait = Math.max(MIN_SPLASH_MS - elapsed, 0);
+
     const timer = setTimeout(() => {
+      if (hasNavigated.current) return;
       hasNavigated.current = true;
       if (firebaseUser) {
         router.replace('/(app)/(session)');
       } else {
         router.replace('/(auth)/sign-in');
       }
-    }, 2000);
+    }, wait);
 
     return () => clearTimeout(timer);
   }, [initialized, firebaseUser, router]);

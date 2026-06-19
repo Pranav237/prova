@@ -10,23 +10,22 @@ import Animated, {
 } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 import ScreenWrapper from '@/components/layout/ScreenWrapper';
+import Button from '@/components/ui/Button';
 import { useAuthStore } from '@/stores/authStore';
 import { useSessionStore } from '@/stores/sessionStore';
-import { endSession as endSessionApi } from '@/lib/api';
+import { NotSignedInError, ApiError } from '@/lib/api';
+import { finalizeSession } from '@/lib/finalizeSession';
 import { colors, typography } from '@/constants/theme';
 
 const EndingScreen = () => {
   const router = useRouter();
+  const initialized = useAuthStore((s) => s.initialized);
   const firebaseUser = useAuthStore((s) => s.firebaseUser);
   const sessionId = useSessionStore((s) => s.sessionId);
 
   const [progress, setProgress] = useState(0);
-  const [resultData, setResultData] = useState<{
-    cardTitle: string;
-    cardArtUrl: string;
-    cardMetallicColor: string;
-    pdfUrl: string;
-  } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [retryNonce, setRetryNonce] = useState(0);
 
   const pulseScale = useSharedValue(1);
 
@@ -55,15 +54,28 @@ const EndingScreen = () => {
   }, []);
 
   useEffect(() => {
+    if (!initialized) return;
+
+    if (!firebaseUser) {
+      setError('Sign in is required to finish this session.');
+      return;
+    }
+
+    if (!sessionId) {
+      setError('This session is missing. Go back and open the session again.');
+      return;
+    }
+
+    let cancelled = false;
+
     const generateOutput = async () => {
-      if (!firebaseUser || !sessionId) return;
+      setError(null);
 
       try {
-        const result = await endSessionApi({
-          userId: firebaseUser.uid,
-          sessionId,
-        });
-        setResultData(result.data);
+        const result = await finalizeSession(firebaseUser.uid, sessionId);
+
+        if (cancelled) return;
+
         setProgress(1);
 
         setTimeout(() => {
@@ -78,12 +90,24 @@ const EndingScreen = () => {
           });
         }, 500);
       } catch (e) {
+        if (cancelled) return;
+        if (e instanceof NotSignedInError) {
+          setError('Sign in is required to finish this session.');
+        } else if (e instanceof ApiError && e.isAuthError) {
+          setError('Your sign in did not reach the server. Tap try again.');
+        } else {
+          setError('Something went wrong finishing this session. Tap try again.');
+        }
         console.error('Failed to end session:', e);
       }
     };
 
-    generateOutput();
-  }, [firebaseUser, sessionId, router]);
+    void generateOutput();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [initialized, firebaseUser, sessionId, retryNonce, router]);
 
   const pulseStyle = useAnimatedStyle(() => ({
     transform: [{ scale: pulseScale.value }],
@@ -104,19 +128,30 @@ const EndingScreen = () => {
 
         <Text style={styles.title}>Something real came through here.</Text>
         <Text style={styles.subtitle}>
-          Prova is putting together what it found. This takes a moment.
+          {error ?? 'Prova is putting together what it found. This takes a moment.'}
         </Text>
 
-        <View style={styles.progressContainer}>
-          <View style={styles.progressTrack}>
-            <LinearGradient
-              colors={colors.gradient.primaryButton}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={[styles.progressFill, { width: `${Math.min(progress * 100, 100)}%` }]}
+        {error ? (
+          <View style={styles.actions}>
+            <Button
+              title="Try again"
+              onPress={() => setRetryNonce((n) => n + 1)}
+              variant="primary"
             />
+            <Button title="Back to session" onPress={() => router.back()} variant="ghost" />
           </View>
-        </View>
+        ) : (
+          <View style={styles.progressContainer}>
+            <View style={styles.progressTrack}>
+              <LinearGradient
+                colors={colors.gradient.primaryButton}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={[styles.progressFill, { width: `${Math.min(progress * 100, 100)}%` }]}
+              />
+            </View>
+          </View>
+        )}
       </View>
     </ScreenWrapper>
   );
@@ -174,6 +209,11 @@ const styles = StyleSheet.create({
   progressFill: {
     height: '100%',
     borderRadius: 1,
+  },
+  actions: {
+    marginTop: 28,
+    width: '100%',
+    gap: 12,
   },
 });
 

@@ -11,7 +11,6 @@ import {
   orderBy,
   onSnapshot,
   serverTimestamp,
-  Timestamp,
   limit,
   increment,
 } from 'firebase/firestore';
@@ -55,16 +54,6 @@ export const getCompletedSessions = async (userId: string) => {
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Session);
 };
 
-export const getPastSessions = async (userId: string) => {
-  const q = query(
-    collection(db, 'users', userId, 'sessions'),
-    where('status', 'in', ['complete', 'incomplete']),
-    orderBy('lastMessageAt', 'desc')
-  );
-  const snap = await getDocs(q);
-  return snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Session);
-};
-
 export const getActiveSession = async (userId: string) => {
   const q = query(
     collection(db, 'users', userId, 'sessions'),
@@ -76,6 +65,24 @@ export const getActiveSession = async (userId: string) => {
   const d = snap.docs[0];
   return { id: d.id, ...d.data() } as Session;
 };
+
+export const subscribeToSession = (
+  userId: string,
+  sessionId: string,
+  callback: (session: Session | null) => void
+) => {
+  return onSnapshot(
+    doc(db, 'users', userId, 'sessions', sessionId),
+    (snap) => {
+      if (!snap.exists()) {
+        callback(null);
+        return;
+      }
+      callback({ id: snap.id, ...snap.data() } as Session);
+    }
+  );
+};
+
 
 export const addMessage = async (
   userId: string,
@@ -90,9 +97,10 @@ export const addMessage = async (
       createdAt: serverTimestamp(),
     }
   );
+  // NOTE: exchangeCount is owned by the server-side processMessage function.
+  // Do NOT increment it here, or it will be double-counted (server +1, client +1).
   await updateDoc(doc(db, 'users', userId, 'sessions', sessionId), {
     lastMessageAt: serverTimestamp(),
-    exchangeCount: increment(message.role === 'user' ? 0 : 1),
   });
   return ref.id;
 };

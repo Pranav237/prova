@@ -1,300 +1,424 @@
-import { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, TextInput as RNTextInput } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useCallback, useState } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  FlatList,
+  Alert,
+  RefreshControl,
+} from 'react-native';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
-import Animated, { FadeIn } from 'react-native-reanimated';
-import { Compass, Target, RotateCcw } from 'lucide-react-native';
+import { Plus, ChevronRight, Trash2 } from 'lucide-react-native';
 import ScreenWrapper from '@/components/layout/ScreenWrapper';
-import Button from '@/components/ui/Button';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuthStore } from '@/stores/authStore';
 import { useSessionStore } from '@/stores/sessionStore';
-import { getActiveSession, getCompletedSessions, updateUserProfile, deleteAllSessions } from '@/lib/firestore';
-import { createSession } from '@/lib/firestore';
-import { colors, typography, radius, spacing } from '@/constants/theme';
+import {
+  getActiveSession,
+  getCompletedSessions,
+  deleteSession,
+} from '@/lib/firestore';
+import { colors, typography, radius } from '@/constants/theme';
+import type { Session } from '@/lib/types';
 
-const SessionIntentScreen = () => {
+/**
+ * Sessions dashboard. The single place from which the user starts new
+ * sessions, continues an in-progress one, or jumps into a completed session's
+ * card view. This screen never auto-navigates anywhere; the user is always in
+ * control.
+ */
+const SessionsDashboard = () => {
   const router = useRouter();
-  const profile = useAuthStore((s) => s.profile);
   const firebaseUser = useAuthStore((s) => s.firebaseUser);
-  const refreshProfile = useAuthStore((s) => s.refreshProfile);
-  const setIntent = useSessionStore((s) => s.setIntent);
   const setSessionId = useSessionStore((s) => s.setSessionId);
-  const [showDirectedInput, setShowDirectedInput] = useState(false);
-  const [directedPrompt, setDirectedPrompt] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [hasPreviousSessions, setHasPreviousSessions] = useState(false);
+  const setIntent = useSessionStore((s) => s.setIntent);
 
-  useEffect(() => {
-    const init = async () => {
-      if (!firebaseUser) return;
+  const [active, setActive] = useState<Session | null>(null);
+  const [completed, setCompleted] = useState<Session[]>([]);
+  const [loading, setLoading] = useState(true);
 
-      // TODO: Remove after testing — one-time wipe of stale test data
-      const resetKey = 'dev_reset_v3';
-      const hasReset = await AsyncStorage.getItem(resetKey);
-      if (!hasReset) {
-        await deleteAllSessions(firebaseUser.uid);
-        await updateUserProfile(firebaseUser.uid, { hasCompletedOnboarding: false, sessionCount: 0 });
-        await AsyncStorage.setItem(resetKey, 'done');
-        await refreshProfile();
-      }
-
-      const active = await getActiveSession(firebaseUser.uid);
-      if (active) {
-        setSessionId(active.id);
-        setIntent(active.intent);
-        router.replace('/(app)/(session)/conversation');
-        return;
-      }
-      const completed = await getCompletedSessions(firebaseUser.uid);
-      setHasPreviousSessions(completed.length > 0);
-    };
-    init();
-  }, [firebaseUser, router, setSessionId, setIntent, refreshProfile]);
-
-  const needsOnboarding = profile && !profile.hasCompletedOnboarding;
-
-  const startSession = async (intent: 'open' | 'directed' | 'revisiting', prompt?: string) => {
-    if (!firebaseUser) return;
+  const load = useCallback(async () => {
+    if (!firebaseUser) {
+      setActive(null);
+      setCompleted([]);
+      return;
+    }
     setLoading(true);
     try {
-      setIntent(intent);
-
-      if (needsOnboarding) {
-        router.push('/(app)/(session)/onboarding');
-        return;
-      }
-
-      const sessionId = await createSession(firebaseUser.uid, intent, {
-        directedPrompt: prompt,
-      });
-      setSessionId(sessionId);
-      router.push('/(app)/(session)/conversation');
+      const [a, c] = await Promise.all([
+        getActiveSession(firebaseUser.uid),
+        getCompletedSessions(firebaseUser.uid),
+      ]);
+      setActive(a);
+      setCompleted(c);
     } catch (e) {
-      console.error('Failed to start session:', e);
+      console.error('Failed to load sessions:', e);
     } finally {
       setLoading(false);
     }
+  }, [firebaseUser]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void load();
+    }, [load])
+  );
+
+  const continueActive = () => {
+    if (!active) return;
+    setSessionId(active.id);
+    setIntent(active.intent);
+    router.push('/(app)/(session)/conversation');
   };
 
-  if (showDirectedInput) {
-    return (
-      <ScreenWrapper gradient>
-        <View style={styles.container}>
-          <Text style={styles.heading}>What's on your mind?</Text>
-          <Text style={styles.subtext}>
-            Briefly describe the belief, decision, or pattern you want to examine.
-          </Text>
-
-          <RNTextInput
-            style={styles.textArea}
-            placeholder="I've been thinking about..."
-            placeholderTextColor={colors.text.faint}
-            value={directedPrompt}
-            onChangeText={setDirectedPrompt}
-            multiline
-            maxLength={500}
-            autoFocus
-            selectionColor={colors.purple.DEFAULT}
-          />
-
-          <View style={styles.directedButtons}>
-            <Button
-              title="Back"
-              variant="ghost"
-              onPress={() => setShowDirectedInput(false)}
-            />
-            <View style={{ flex: 1 }}>
-              <Button
-                title="Begin Session"
-                onPress={() => startSession('directed', directedPrompt)}
-                disabled={!directedPrompt.trim()}
-                loading={loading}
-              />
-            </View>
-          </View>
-        </View>
-      </ScreenWrapper>
+  const discardActive = () => {
+    if (!firebaseUser || !active) return;
+    Alert.alert(
+      'Discard current session?',
+      'This permanently deletes the unfinished conversation.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Discard',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteSession(firebaseUser.uid, active.id);
+              useSessionStore.getState().reset();
+              setActive(null);
+            } catch (e) {
+              console.error('Failed to discard:', e);
+            }
+          },
+        },
+      ]
     );
-  }
+  };
+
+  const deleteCompleted = (session: Session) => {
+    if (!firebaseUser) return;
+    Alert.alert(
+      'Delete session?',
+      `Delete "${session.cardTitle || 'this session'}"? The card and PDF will be removed permanently.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteSession(firebaseUser.uid, session.id);
+              setCompleted((prev) => prev.filter((s) => s.id !== session.id));
+            } catch (e) {
+              console.error('Failed to delete:', e);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const formatRelative = (s: Session) => {
+    const ts = s.lastMessageAt;
+    if (!ts) return '';
+    const date = ts.toDate();
+    const diffMs = Date.now() - date.getTime();
+    const minutes = Math.round(diffMs / 60000);
+    if (minutes < 1) return 'just now';
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.round(minutes / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.round(hours / 24);
+    if (days < 7) return `${days}d ago`;
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  };
+
+  const renderActiveBlock = () => {
+    if (!active) {
+      return (
+        <TouchableOpacity
+          style={styles.startButton}
+          onPress={() => router.push('/(app)/(session)/new')}
+          activeOpacity={0.7}
+        >
+          <LinearGradient
+            colors={colors.gradient.primaryButton}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.startButtonGradient}
+          />
+          <Plus size={16} color={colors.white} strokeWidth={2.5} />
+          <Text style={styles.startButtonText}>Start a new session</Text>
+        </TouchableOpacity>
+      );
+    }
+
+    const exchanges = active.exchangeCount ?? 0;
+
+    return (
+      <View style={styles.activeCard}>
+        <View style={styles.activeHeader}>
+          <View style={styles.activeDot} />
+          <Text style={styles.activeLabel}>In progress</Text>
+        </View>
+        <Text style={styles.activeMeta}>
+          {exchanges} exchange{exchanges !== 1 ? 's' : ''} · {formatRelative(active)}
+        </Text>
+        <View style={styles.activeActions}>
+          <TouchableOpacity
+            style={styles.primaryAction}
+            onPress={continueActive}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.primaryActionText}>Continue</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.secondaryAction}
+            onPress={discardActive}
+            activeOpacity={0.6}
+          >
+            <Text style={styles.secondaryActionText}>Discard</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  };
+
+  const renderItem = ({ item }: { item: Session }) => {
+    const ts = item.completedAt || item.lastMessageAt;
+    const dateText = ts
+      ? ts.toDate().toLocaleDateString('en-US', {
+          month: 'long',
+          day: 'numeric',
+          year: 'numeric',
+        })
+      : '';
+
+    return (
+      <View style={styles.sessionRow}>
+        <TouchableOpacity
+          style={styles.sessionInfo}
+          onPress={() => router.push(`/(app)/(session)/${item.id}`)}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.sessionTitle} numberOfLines={1}>
+            {item.cardTitle || 'Untitled Session'}
+          </Text>
+          <Text style={styles.sessionDate}>
+            {dateText}
+            {item.exchangeCount > 0
+              ? ` · ${item.exchangeCount} exchanges`
+              : ''}
+          </Text>
+        </TouchableOpacity>
+        <View style={styles.sessionActions}>
+          <TouchableOpacity
+            onPress={() => deleteCompleted(item)}
+            style={styles.iconButton}
+            hitSlop={6}
+          >
+            <Trash2 size={15} color={colors.text.muted} />
+          </TouchableOpacity>
+          <ChevronRight size={14} color={colors.text.faint} />
+        </View>
+      </View>
+    );
+  };
 
   return (
     <ScreenWrapper>
-      <LinearGradient
-        colors={['rgba(120,80,200,0.08)', 'transparent']}
-        style={styles.gradient}
-        start={{ x: 0.5, y: 0.15 }}
-        end={{ x: 0.5, y: 0.6 }}
-      />
-      <View style={styles.container}>
-        <Text style={styles.heading}>How do you want to start?</Text>
-        <Text style={styles.subtext}>You can always change direction mid-session.</Text>
-
-        <View style={styles.cards}>
-          <TouchableOpacity
-            style={[styles.intentCard, styles.intentCardRecommended]}
-            onPress={() => startSession('open')}
-            activeOpacity={0.7}
-          >
-            <View style={styles.intentRow}>
-              <View style={styles.iconContainer}>
-                <Compass size={18} color={colors.purple.DEFAULT} />
-              </View>
-              <View style={styles.intentTextContainer}>
-                <View style={styles.titleRow}>
-                  <Text style={styles.intentTitle}>Let Prova lead</Text>
-                  <View style={styles.badge}>
-                    <Text style={styles.badgeText}>Recommended</Text>
-                  </View>
-                </View>
-                <Text style={styles.intentDesc}>
-                  Prova will find what's worth examining
-                </Text>
-              </View>
-            </View>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.intentCard}
-            onPress={() => setShowDirectedInput(true)}
-            activeOpacity={0.7}
-          >
-            <View style={styles.intentRow}>
-              <View style={styles.iconContainer}>
-                <Target size={18} color={colors.text.muted} />
-              </View>
-              <View style={styles.intentTextContainer}>
-                <Text style={styles.intentTitle}>I have something</Text>
-                <Text style={styles.intentDesc}>
-                  Examine a specific belief, decision, or pattern
-                </Text>
-              </View>
-            </View>
-          </TouchableOpacity>
-
-          {hasPreviousSessions && (
-            <TouchableOpacity
-              style={styles.intentCard}
-              onPress={() => startSession('revisiting')}
-              activeOpacity={0.7}
-            >
-              <View style={styles.intentRow}>
-                <View style={styles.iconContainer}>
-                  <RotateCcw size={18} color={colors.text.muted} />
-                </View>
-                <View style={styles.intentTextContainer}>
-                  <Text style={styles.intentTitle}>Revisit a session</Text>
-                  <Text style={styles.intentDesc}>
-                    Go deeper on something from a previous session
-                  </Text>
-                </View>
-              </View>
-            </TouchableOpacity>
-          )}
-        </View>
+      <View style={styles.header}>
+        <Text style={styles.title}>Sessions</Text>
+        <Text style={styles.subtitle}>
+          {completed.length} completed{active ? ' · 1 in progress' : ''}
+        </Text>
       </View>
+
+      <FlatList
+        data={completed}
+        keyExtractor={(item) => item.id}
+        renderItem={renderItem}
+        contentContainerStyle={styles.listContent}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={loading}
+            onRefresh={load}
+            tintColor={colors.purple.DEFAULT}
+          />
+        }
+        ListHeaderComponent={
+          <View style={styles.headerBlock}>
+            {renderActiveBlock()}
+            {completed.length > 0 && (
+              <Text style={styles.sectionLabel}>Past sessions</Text>
+            )}
+          </View>
+        }
+        ListEmptyComponent={
+          !loading && !active ? (
+            <View style={styles.empty}>
+              <Text style={styles.emptyText}>
+                Your finished sessions will appear here.
+              </Text>
+            </View>
+          ) : null
+        }
+      />
     </ScreenWrapper>
   );
 };
 
 const styles = StyleSheet.create({
-  gradient: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  container: {
-    flex: 1,
+  header: {
     paddingHorizontal: 20,
-    paddingTop: 30,
+    paddingTop: 12,
+    paddingBottom: 16,
   },
-  heading: {
+  title: {
     fontFamily: 'InstrumentSerif-Regular',
     fontSize: 22,
     color: colors.white,
   },
-  subtext: {
+  subtitle: {
     fontFamily: 'DMSans-Regular',
-    fontSize: 12,
+    fontSize: 11,
     color: colors.text.muted,
-    marginTop: 6,
-    marginBottom: 32,
+    marginTop: 4,
   },
-  cards: {
-    gap: 12,
+  listContent: {
+    paddingHorizontal: 20,
+    paddingBottom: 24,
   },
-  intentCard: {
-    padding: 18,
-    paddingHorizontal: 16,
-    borderRadius: radius['2xl'],
-    backgroundColor: 'rgba(255,255,255,0.02)',
-    borderWidth: 1,
-    borderColor: colors.border.light,
+  headerBlock: {
+    marginBottom: 8,
   },
-  intentCardRecommended: {
-    backgroundColor: colors.purple.faint,
-    borderColor: colors.purple.border,
-  },
-  intentRow: {
+  startButton: {
     flexDirection: 'row',
-    gap: 14,
-  },
-  iconContainer: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.04)',
-  },
-  intentTextContainer: {
-    flex: 1,
-  },
-  titleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
     gap: 8,
+    paddingVertical: 14,
+    borderRadius: radius.xl,
+    overflow: 'hidden',
+    marginBottom: 24,
   },
-  intentTitle: {
+  startButtonGradient: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  startButtonText: {
     fontFamily: 'DMSans-SemiBold',
     fontSize: 14,
     color: colors.white,
   },
-  badge: {
-    backgroundColor: 'rgba(168,130,255,0.2)',
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    borderRadius: 6,
-  },
-  badgeText: {
-    fontFamily: 'DMSans-Regular',
-    fontSize: 9,
-    textTransform: 'uppercase',
-    color: '#C4ABFF',
-  },
-  intentDesc: {
-    fontFamily: 'DMSans-Regular',
-    fontSize: 12,
-    color: colors.text.muted,
-    lineHeight: 17,
-    marginTop: 4,
-  },
-  textArea: {
-    backgroundColor: colors.bg.input,
+  activeCard: {
+    backgroundColor: colors.purple.faint,
     borderWidth: 1,
-    borderColor: colors.border.DEFAULT,
-    borderRadius: radius.lg,
-    padding: 16,
-    minHeight: 120,
-    ...typography.body.default,
-    color: colors.text.primary,
-    textAlignVertical: 'top',
-    marginTop: 24,
+    borderColor: colors.purple.border,
+    borderRadius: radius['2xl'],
+    padding: 18,
+    marginBottom: 24,
   },
-  directedButtons: {
+  activeHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  activeDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.purple.DEFAULT,
+  },
+  activeLabel: {
+    fontFamily: 'DMSans-Medium',
+    fontSize: 12,
+    color: colors.purple.DEFAULT,
+    textTransform: 'uppercase',
+    letterSpacing: 0.7,
+  },
+  activeMeta: {
+    ...typography.body.small,
+    color: colors.text.tertiary,
+    marginTop: 6,
+  },
+  activeActions: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    marginTop: 20,
+    marginTop: 16,
+  },
+  primaryAction: {
+    flex: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: radius.lg,
+    backgroundColor: colors.purple.DEFAULT,
+    alignItems: 'center',
+  },
+  primaryActionText: {
+    fontFamily: 'DMSans-SemiBold',
+    fontSize: 13,
+    color: colors.white,
+  },
+  secondaryAction: {
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+  },
+  secondaryActionText: {
+    fontFamily: 'DMSans-Medium',
+    fontSize: 12,
+    color: colors.text.muted,
+  },
+  sectionLabel: {
+    fontFamily: 'DMSans-Regular',
+    fontSize: 10,
+    color: colors.text.muted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.7,
+    marginBottom: 8,
+  },
+  sessionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border.subtle,
+  },
+  sessionInfo: {
+    flex: 1,
+    marginRight: 12,
+  },
+  sessionTitle: {
+    fontFamily: 'DMSans-Medium',
+    fontSize: 13,
+    color: colors.text.secondary,
+  },
+  sessionDate: {
+    fontFamily: 'DMSans-Regular',
+    fontSize: 11,
+    color: colors.text.muted,
+    marginTop: 2,
+  },
+  sessionActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  iconButton: {
+    padding: 6,
+  },
+  empty: {
+    alignItems: 'center',
+    paddingTop: 40,
+    paddingHorizontal: 32,
+  },
+  emptyText: {
+    ...typography.body.small,
+    color: colors.text.muted,
+    textAlign: 'center',
   },
 });
 
-export default SessionIntentScreen;
+export default SessionsDashboard;

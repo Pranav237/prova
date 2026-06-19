@@ -1,12 +1,25 @@
-import { Platform } from 'react-native';
-import { Tabs } from 'expo-router';
+import { Tabs, Redirect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Circle, Square, Settings } from 'lucide-react-native';
-import { colors, typography } from '@/constants/theme';
+import { colors } from '@/constants/theme';
+import { useAuthStore } from '@/stores/authStore';
 
 const AppLayout = () => {
   const insets = useSafeAreaInsets();
+  const initialized = useAuthStore((s) => s.initialized);
+  const firebaseUser = useAuthStore((s) => s.firebaseUser);
   const tabBarHeight = 52 + Math.max(insets.bottom, 8);
+
+  // Wait for auth to initialize before deciding what to render to avoid
+  // briefly mounting protected screens while we still don't know who the
+  // user is. Once initialized, if there's no user, bounce to sign-in.
+  if (!initialized) {
+    return null;
+  }
+
+  if (!firebaseUser) {
+    return <Redirect href="/(auth)/sign-in" />;
+  }
 
   return (
     <Tabs

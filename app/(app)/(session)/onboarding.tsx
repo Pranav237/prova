@@ -34,10 +34,7 @@ const OnboardingScreen = () => {
     const loadPrompts = async () => {
       if (!firebaseUser) return;
       try {
-        const result = await generateOnboarding({
-          userId: firebaseUser.uid,
-          isFirstSession: true,
-        });
+        const result = await generateOnboarding({ isFirstSession: true });
         setPrompts(result.data.prompts);
       } catch (e) {
         console.error('Failed to generate onboarding:', e);
@@ -128,7 +125,7 @@ const OnboardingScreen = () => {
         const sessionId = await createSession(firebaseUser.uid, intent as 'open' | 'directed');
         setSessionId(sessionId);
 
-        await updateSession(firebaseUser.uid, sessionId, { onboardingAnswers } as any);
+        await updateSession(firebaseUser.uid, sessionId, { onboardingAnswers });
         await updateUserProfile(firebaseUser.uid, { hasCompletedOnboarding: true });
         await refreshProfile();
 

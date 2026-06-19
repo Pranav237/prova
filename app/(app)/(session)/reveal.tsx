@@ -29,14 +29,11 @@ const RevealScreen = () => {
     });
   };
 
-  const handleViewPDF = () => {
+  const handleViewCard = () => {
     if (sessionId) {
-      router.push(`/(app)/(cards)/${sessionId}`);
+      reset();
+      router.replace(`/(app)/(cards)/${sessionId}`);
     }
-  };
-
-  const handleSaveCard = () => {
-    // TODO: Implement card capture and save to camera roll
   };
 
   const handleDone = () => {
@@ -64,23 +61,14 @@ const RevealScreen = () => {
 
         <Animated.View entering={FadeIn.delay(600).duration(400)}>
           <Text style={styles.readyText}>Your card is ready</Text>
-          <Text style={styles.interactionHint}>Tap to flip · Pinch to zoom</Text>
         </Animated.View>
 
         <Animated.View
           entering={FadeInDown.delay(800).duration(300)}
           style={styles.buttons}
         >
-          <View style={styles.buttonRow}>
-            <View style={{ flex: 1 }}>
-              <Button title="View PDF" variant="secondary" onPress={handleViewPDF} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Button title="Save Card" onPress={handleSaveCard} />
-            </View>
-          </View>
-
-          <Button title="Done" variant="ghost" onPress={handleDone} />
+          <Button title="Open card" onPress={handleViewCard} />
+          <Button title="Later" variant="ghost" onPress={handleDone} />
         </Animated.View>
       </View>
     </ScreenWrapper>
@@ -106,21 +94,10 @@ const styles = StyleSheet.create({
     color: colors.white,
     textAlign: 'center',
   },
-  interactionHint: {
-    fontFamily: 'DMSans-Regular',
-    fontSize: 12,
-    color: colors.text.muted,
-    textAlign: 'center',
-    marginTop: 6,
-  },
   buttons: {
     width: '100%',
     marginTop: 28,
     gap: 12,
-  },
-  buttonRow: {
-    flexDirection: 'row',
-    gap: 10,
   },
 });
 
