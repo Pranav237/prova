@@ -1,5 +1,5 @@
 import { forwardRef, useImperativeHandle, useRef } from 'react';
-import { StyleSheet, ImageBackground, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
   useSharedValue,
@@ -9,11 +9,13 @@ import Animated, {
   Extrapolation,
 } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
+import ProvaMonogram from '@/components/cards/ProvaMonogram';
 import { colors, typography, radius, shadows } from '@/constants/theme';
 
 interface InteractiveCardProps {
   title: string;
   date: string;
+  /** Reserved for future card artwork. Currently unused (editorial design). */
   artUrl?: string;
   metallicColor: string;
   /** Optional content rendered on the back face when the card is flipped. */
@@ -35,7 +37,7 @@ const CARD_HEIGHT = 330;
  * worklets so it stays smooth even on a packed screen.
  */
 const InteractiveCard = forwardRef<InteractiveCardHandle, InteractiveCardProps>(
-  ({ title, date, artUrl, metallicColor, backContent }, ref) => {
+  ({ title, date, metallicColor, backContent }, ref) => {
     const captureRef = useRef<View | null>(null);
     const rotateY = useSharedValue(0); // 0 = front, 180 = back
 
@@ -90,30 +92,28 @@ const InteractiveCard = forwardRef<InteractiveCardHandle, InteractiveCardProps>(
         <Animated.View style={[styles.outer, shadows.cardReveal]} collapsable={false}>
           <View ref={captureRef} collapsable={false} style={styles.captureRoot}>
             <Animated.View style={[styles.face, frontStyle]}>
-              {artUrl ? (
-                <ImageBackground
-                  source={{ uri: artUrl }}
-                  style={styles.artArea}
-                  imageStyle={styles.artImage}
-                >
-                  <LinearGradient
-                    colors={[`${metallicColor}40`, colors.bg.card]}
-                    style={StyleSheet.absoluteFillObject}
+              <LinearGradient
+                colors={[`${metallicColor}1F`, colors.bg.card, '#0D0B14']}
+                style={StyleSheet.absoluteFillObject}
+                start={{ x: 0.5, y: 0 }}
+                end={{ x: 0.5, y: 1 }}
+              />
+              <View style={styles.frontContent}>
+                <ProvaMonogram color={metallicColor} size={30} />
+                <View style={styles.titleBlock}>
+                  <Text style={styles.cardTitle} numberOfLines={4}>
+                    {title}
+                  </Text>
+                  <View
+                    style={[
+                      styles.titleRule,
+                      { backgroundColor: `${metallicColor}66` },
+                    ]}
                   />
-                </ImageBackground>
-              ) : (
-                <LinearGradient
-                  colors={colors.gradient.cardSurface}
-                  style={styles.artArea}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                />
-              )}
-              <View style={styles.contentArea}>
-                <Text style={styles.cardTitle} numberOfLines={3}>
-                  {title}
-                </Text>
-                <Text style={styles.cardDate}>{date}</Text>
+                  <Text style={[styles.cardDate, { color: `${metallicColor}CC` }]}>
+                    {date}
+                  </Text>
+                </View>
                 <Text style={styles.watermark}>thinkprova.com</Text>
               </View>
             </Animated.View>
@@ -168,30 +168,38 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  artArea: {
-    height: CARD_HEIGHT * 0.58,
-  },
-  artImage: {
-    resizeMode: 'cover',
-  },
-  contentArea: {
+  frontContent: {
     flex: 1,
-    padding: 16,
+    paddingTop: 24,
+    paddingBottom: 18,
+    paddingHorizontal: 18,
+    alignItems: 'center',
     justifyContent: 'space-between',
+  },
+  titleBlock: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   cardTitle: {
     fontFamily: 'InstrumentSerif-Regular',
-    fontSize: 17,
-    lineHeight: 22,
+    fontSize: 28,
+    lineHeight: 32,
     color: colors.text.primary,
+    textAlign: 'center',
+  },
+  titleRule: {
+    width: 28,
+    height: 1,
+    marginTop: 14,
+    marginBottom: 12,
   },
   cardDate: {
     fontFamily: 'DMSans-Regular',
     fontSize: 10,
-    color: colors.purple.soft,
     textTransform: 'uppercase',
-    letterSpacing: 0.8,
-    marginTop: 6,
+    letterSpacing: 1.5,
+    textAlign: 'center',
   },
   watermark: {
     fontFamily: 'DMSans-Regular',

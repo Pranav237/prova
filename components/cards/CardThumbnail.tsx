@@ -1,42 +1,38 @@
-import { TouchableOpacity, Text, View, StyleSheet, ImageBackground } from 'react-native';
+import { TouchableOpacity, Text, View, StyleSheet } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { colors, typography, radius } from '@/constants/theme';
+import ProvaMonogram from '@/components/cards/ProvaMonogram';
+import { colors, radius } from '@/constants/theme';
 
 interface CardThumbnailProps {
   title: string;
   date: string;
   metallicColor: string;
+  /** Reserved for future card artwork. Currently unused (editorial design). */
   artUrl?: string;
   onPress: () => void;
 }
 
-const CardThumbnail = ({ title, date, metallicColor, artUrl, onPress }: CardThumbnailProps) => {
-  const content = (
-    <>
-      <LinearGradient
-        colors={[`${metallicColor}26`, colors.bg.primary]}
-        style={StyleSheet.absoluteFillObject}
-        start={{ x: 0.5, y: 0 }}
-        end={{ x: 0.5, y: 0.9 }}
-      />
-      <View style={styles.content}>
-        <Text style={styles.title} numberOfLines={2}>
-          {title}
-        </Text>
-        <Text style={styles.date}>{date}</Text>
-      </View>
-    </>
-  );
-
+const CardThumbnail = ({ title, date, metallicColor, onPress }: CardThumbnailProps) => {
   return (
     <TouchableOpacity style={styles.container} onPress={onPress} activeOpacity={0.8}>
-      {artUrl ? (
-        <ImageBackground source={{ uri: artUrl }} style={styles.imageContainer} imageStyle={styles.image}>
-          {content}
-        </ImageBackground>
-      ) : (
-        content
-      )}
+      <LinearGradient
+        colors={[`${metallicColor}1F`, colors.bg.card, '#0D0B14']}
+        style={StyleSheet.absoluteFillObject}
+        start={{ x: 0.5, y: 0 }}
+        end={{ x: 0.5, y: 1 }}
+      />
+      <View style={styles.content}>
+        <ProvaMonogram color={metallicColor} size={22} />
+        <View style={styles.titleBlock}>
+          <Text style={styles.title} numberOfLines={2}>
+            {title}
+          </Text>
+          <View
+            style={[styles.titleRule, { backgroundColor: `${metallicColor}66` }]}
+          />
+          <Text style={[styles.date, { color: `${metallicColor}CC` }]}>{date}</Text>
+        </View>
+      </View>
     </TouchableOpacity>
   );
 };
@@ -50,26 +46,38 @@ const styles = StyleSheet.create({
     borderColor: colors.border.light,
     backgroundColor: colors.bg.card,
   },
-  imageContainer: {
-    flex: 1,
-  },
-  image: {
-    opacity: 0.3,
-  },
   content: {
     flex: 1,
-    justifyContent: 'flex-end',
-    padding: 14,
+    paddingTop: 14,
+    paddingBottom: 14,
+    paddingHorizontal: 14,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  titleBlock: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   title: {
-    ...typography.display.card,
+    fontFamily: 'InstrumentSerif-Regular',
+    fontSize: 17,
+    lineHeight: 21,
     color: colors.text.primary,
+    textAlign: 'center',
+  },
+  titleRule: {
+    width: 22,
+    height: 1,
+    marginTop: 10,
+    marginBottom: 8,
   },
   date: {
     fontFamily: 'DMSans-Regular',
-    fontSize: 10,
-    color: colors.text.muted,
-    marginTop: 4,
+    fontSize: 8,
+    textTransform: 'uppercase',
+    letterSpacing: 1.2,
+    textAlign: 'center',
   },
 });
 

@@ -1,18 +1,19 @@
 import { useEffect } from 'react';
-import { StyleSheet, ImageBackground, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withSpring,
-  withDelay,
   withTiming,
 } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
-import { colors, typography, radius, shadows } from '@/constants/theme';
+import ProvaMonogram from '@/components/cards/ProvaMonogram';
+import { colors, radius, shadows } from '@/constants/theme';
 
 interface CardRevealAnimationProps {
   title: string;
   date: string;
+  /** Reserved for future card artwork. Currently unused (editorial design). */
   artUrl?: string;
   metallicColor: string;
 }
@@ -20,7 +21,6 @@ interface CardRevealAnimationProps {
 const CardRevealAnimation = ({
   title,
   date,
-  artUrl,
   metallicColor,
 }: CardRevealAnimationProps) => {
   const scale = useSharedValue(0.8);
@@ -40,29 +40,25 @@ const CardRevealAnimation = ({
 
   return (
     <Animated.View style={[styles.card, cardStyle, shadows.cardReveal]}>
-      {artUrl && (
-        <ImageBackground
-          source={{ uri: artUrl }}
-          style={styles.artArea}
-          imageStyle={styles.artImage}
-        >
-          <LinearGradient
-            colors={[`${metallicColor}40`, colors.bg.card]}
-            style={StyleSheet.absoluteFillObject}
-          />
-        </ImageBackground>
-      )}
-      {!artUrl && (
-        <LinearGradient
-          colors={colors.gradient.cardSurface}
-          style={styles.artArea}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-        />
-      )}
+      <LinearGradient
+        colors={[`${metallicColor}1F`, colors.bg.card, '#0D0B14']}
+        style={StyleSheet.absoluteFillObject}
+        start={{ x: 0.5, y: 0 }}
+        end={{ x: 0.5, y: 1 }}
+      />
       <View style={styles.cardContent}>
-        <Text style={styles.cardTitle}>{title}</Text>
-        <Text style={styles.cardDate}>{date}</Text>
+        <ProvaMonogram color={metallicColor} size={26} />
+        <View style={styles.titleBlock}>
+          <Text style={styles.cardTitle} numberOfLines={4}>
+            {title}
+          </Text>
+          <View
+            style={[styles.titleRule, { backgroundColor: `${metallicColor}66` }]}
+          />
+          <Text style={[styles.cardDate, { color: `${metallicColor}CC` }]}>
+            {date}
+          </Text>
+        </View>
         <Text style={styles.watermark}>thinkprova.com</Text>
       </View>
     </Animated.View>
@@ -79,26 +75,38 @@ const styles = StyleSheet.create({
     borderColor: colors.purple.border,
     backgroundColor: colors.bg.card,
   },
-  artArea: {
-    height: 150,
-  },
-  artImage: {
-    resizeMode: 'cover',
-  },
   cardContent: {
     flex: 1,
-    padding: 14,
+    paddingTop: 18,
+    paddingBottom: 14,
+    paddingHorizontal: 14,
+    alignItems: 'center',
     justifyContent: 'space-between',
   },
+  titleBlock: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   cardTitle: {
-    ...typography.display.card,
+    fontFamily: 'InstrumentSerif-Regular',
+    fontSize: 22,
+    lineHeight: 26,
     color: colors.text.primary,
+    textAlign: 'center',
+  },
+  titleRule: {
+    width: 24,
+    height: 1,
+    marginTop: 12,
+    marginBottom: 10,
   },
   cardDate: {
     fontFamily: 'DMSans-Regular',
     fontSize: 9,
-    color: colors.purple.soft,
     textTransform: 'uppercase',
+    letterSpacing: 1.4,
+    textAlign: 'center',
   },
   watermark: {
     fontFamily: 'DMSans-Regular',
