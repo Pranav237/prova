@@ -3,8 +3,12 @@ import { generatePDFContent } from './generatePDF';
 import { generateCardData } from './generateCard';
 import { defineEndpoint, HttpError, requireString } from './http';
 
-/** A finalize lock older than this is considered stale (a crashed attempt). */
-const STALE_LOCK_MS = 5 * 60 * 1000;
+/**
+ * A finalize lock older than this is considered stale (a crashed attempt) and
+ * may be re-acquired. Kept above the function's 300s timeout (plus margin) so
+ * we never steal the lock from an attempt that is merely slow but still alive.
+ */
+const STALE_LOCK_MS = 6 * 60 * 1000;
 
 /** Best-effort signed read URL for a stored art file. Returns '' on failure. */
 async function signedArtUrl(ref?: string): Promise<string> {

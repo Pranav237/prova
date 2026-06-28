@@ -81,17 +81,8 @@ export const processMessage = defineEndpoint(
         };
       });
 
-    // Safety-net cap for pathologically long sessions. The full history starts
-    // with Prova's opening (assistant) and strictly alternates, so we trim from
-    // the front at an assistant boundary to keep the structure (assistant →
-    // ... → user) intact while dropping the oldest middle turns.
-    if (conversationHistory.length > MAX_HISTORY_MESSAGES) {
-      let start = conversationHistory.length - MAX_HISTORY_MESSAGES;
-      if (conversationHistory[start]?.role !== 'assistant') start += 1;
-      conversationHistory = conversationHistory.slice(start);
-    }
-
     if (isSessionStart) {
+      // No stored messages yet; '[begin]' is the (unpersisted) trigger turn.
       conversationHistory.push({ role: 'user', content: '[begin]' });
     } else {
       // Normal sends and resumes both rely on the user's turn already being
@@ -108,6 +99,24 @@ export const processMessage = defineEndpoint(
           'Nothing to process: the latest message is not from the user.'
         );
       }
+      // The Anthropic API requires the first message to use the 'user' role.
+      // Open sessions begin with Prova's opening (assistant) because '[begin]'
+      // is never persisted, so reconstruct that trigger turn to keep the array
+      // user-first and strictly alternating. Directed sessions already start
+      // with the user's seeded prompt, so this is a no-op for them.
+      if (conversationHistory[0].role === 'assistant') {
+        conversationHistory.unshift({ role: 'user', content: '[begin]' });
+      }
+    }
+
+    // Safety-net cap for pathologically long sessions. The array is now
+    // user-first and strictly alternates, so trim from the front at a *user*
+    // boundary — keeping the most recent turns while preserving both the
+    // user-first requirement and the alternation.
+    if (conversationHistory.length > MAX_HISTORY_MESSAGES) {
+      let start = conversationHistory.length - MAX_HISTORY_MESSAGES;
+      if (conversationHistory[start]?.role !== 'user') start += 1;
+      conversationHistory = conversationHistory.slice(start);
     }
 
     let previousPDFContent: string | undefined;
