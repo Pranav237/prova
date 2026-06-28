@@ -1,14 +1,64 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    function owns(userId) {
+      return request.auth != null && request.auth.uid == userId;
+    }
+
+    // Fields on a session document that only the server (Admin SDK, which
+    // bypasses these rules) is allowed to write. Clients must never create or
+    // mutate these — otherwise a signed-in user could forge a completed
+    // session, fake card output, or skew the exchange/idempotency state.
+    function sessionProtectedKeys() {
+      return [
+        'status',
+        'completedAt',
+        'exchangeCount',
+        'pdfOutput',
+        'cardTitle',
+        'cardArtRef',
+        'cardMetallicColor',
+        'lastProcessedTurnId',
+        'lastTurnResponse',
+        'lastTurnMeta',
+        'finalizing',
+        'finalizingAt'
+      ];
+    }
+
     match /users/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+      allow read: if owns(userId);
+      allow create: if owns(userId);
+      // sessionCount is incremented server-side; clients may update their own
+      // profile (e.g. hasCompletedOnboarding) but never touch the count.
+      allow update: if owns(userId)
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['sessionCount']);
+      allow delete: if false;
 
       match /sessions/{sessionId} {
-        allow read, write: if request.auth != null && request.auth.uid == userId;
+        allow read: if owns(userId);
+        allow delete: if owns(userId);
+
+        // A client may only ever create a fresh, active session with no
+        // progress. Completed sessions are produced exclusively by the server.
+        allow create: if owns(userId)
+          && request.resource.data.status == 'active'
+          && request.resource.data.exchangeCount == 0;
+
+        // Clients may update input fields (lastMessageAt, onboardingAnswers,
+        // directedPrompt, ...) but never the server-owned result fields above.
+        allow update: if owns(userId)
+          && !request.resource.data.diff(resource.data).affectedKeys().hasAny(sessionProtectedKeys());
 
         match /messages/{messageId} {
-          allow read, write: if request.auth != null && request.auth.uid == userId;
+          allow read: if owns(userId);
+          allow delete: if owns(userId);
+          // Messages are append-only and must carry a valid role + text body.
+          allow create: if owns(userId)
+            && request.resource.data.role in ['user', 'prova']
+            && request.resource.data.content is string;
+          allow update: if false;
         }
       }
     }

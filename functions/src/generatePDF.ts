@@ -1,6 +1,6 @@
-import * as admin from 'firebase-admin';
 import Anthropic from '@anthropic-ai/sdk';
 import { PDF_OUTPUT_PROMPT } from './prompts/output';
+import { buildTranscript } from './transcript';
 
 interface PDFOutput {
   whatYouSaid: string;
@@ -22,20 +22,7 @@ export async function generatePDFContent(
     apiKey: (process.env.ANTHROPIC_API_KEY || '').trim(),
   });
 
-  const db = admin.firestore();
-
-  const messagesSnap = await db
-    .collection(`users/${userId}/sessions/${sessionId}/messages`)
-    .orderBy('createdAt', 'asc')
-    .get();
-
-  const transcript = messagesSnap.docs
-    .map((doc) => {
-      const data = doc.data();
-      const speaker = data.role === 'prova' ? 'Prova' : 'User';
-      return `${speaker}: ${data.content}`;
-    })
-    .join('\n\n');
+  const transcript = await buildTranscript(userId, sessionId);
 
   const response = await anthropic.messages.create({
     model: 'claude-sonnet-4-6',

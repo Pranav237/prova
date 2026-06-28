@@ -1,6 +1,7 @@
 import * as admin from 'firebase-admin';
 import Anthropic from '@anthropic-ai/sdk';
 import { CARD_GENERATION_PROMPT } from './prompts/output';
+import { buildTranscript } from './transcript';
 
 interface CardResult {
   title: string;
@@ -20,18 +21,7 @@ export async function generateCardData(
 
   const db = admin.firestore();
 
-  const messagesSnap = await db
-    .collection(`users/${userId}/sessions/${sessionId}/messages`)
-    .orderBy('createdAt', 'asc')
-    .get();
-
-  const transcript = messagesSnap.docs
-    .map((doc) => {
-      const data = doc.data();
-      const speaker = data.role === 'prova' ? 'Prova' : 'User';
-      return `${speaker}: ${data.content}`;
-    })
-    .join('\n\n');
+  const transcript = await buildTranscript(userId, sessionId);
 
   const artLibrarySnap = await db.collection('artLibrary').get();
   const artLibrary = artLibrarySnap.docs.map((doc) => ({

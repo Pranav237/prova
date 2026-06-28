@@ -30,7 +30,6 @@ import { colors, typography, radius } from '@/constants/theme';
 const NewSessionScreen = () => {
   const router = useRouter();
   const firebaseUser = useAuthStore((s) => s.firebaseUser);
-  const profile = useAuthStore((s) => s.profile);
   const setIntent = useSessionStore((s) => s.setIntent);
   const setSessionId = useSessionStore((s) => s.setSessionId);
 
@@ -56,13 +55,21 @@ const NewSessionScreen = () => {
     };
   }, [firebaseUser]);
 
-  const needsOnboarding = profile && !profile.hasCompletedOnboarding;
-
   const startSession = async (intent: 'open' | 'directed', prompt?: string) => {
     if (!firebaseUser) return;
     setLoading(true);
 
     try {
+      // Resolve onboarding status from a *loaded* profile. A null profile that
+      // simply hasn't loaded yet must not be mistaken for "onboarding done" —
+      // that would skip first-run onboarding entirely.
+      let resolvedProfile = useAuthStore.getState().profile;
+      if (!useAuthStore.getState().profileLoaded) {
+        await useAuthStore.getState().refreshProfile();
+        resolvedProfile = useAuthStore.getState().profile;
+      }
+      const needsOnboarding = !resolvedProfile?.hasCompletedOnboarding;
+
       // If there's an existing active session, ask before replacing.
       const active = await getActiveSession(firebaseUser.uid);
       if (active) {

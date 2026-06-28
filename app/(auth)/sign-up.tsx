@@ -18,7 +18,7 @@ const SignUpScreen = () => {
   const [error, setError] = useState('');
 
   const handleSignUp = async () => {
-    if (!displayName.trim() || !email.trim() || !password.trim()) {
+    if (!displayName.trim() || !email.trim() || !password.trim() || !confirmPassword.trim()) {
       setError('Please fill in all fields');
       return;
     }
@@ -35,13 +35,13 @@ const SignUpScreen = () => {
     setError('');
     try {
       await signUpWithEmail(email.trim(), password, displayName.trim());
-      router.replace('/(app)/(session)');
+      // Navigation is handled by the (auth) layout redirect once the auth
+      // store updates with the new user.
     } catch (e: any) {
       const msg = e?.code === 'auth/email-already-in-use'
         ? 'An account with this email already exists'
         : e?.message || 'Sign up failed';
       setError(msg);
-    } finally {
       setLoading(false);
     }
   };

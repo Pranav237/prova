@@ -3,7 +3,6 @@ import { View, Text, StyleSheet, TouchableOpacity, Alert, Platform } from 'react
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { signInWithEmail } from '@/lib/auth';
-import { useAuthStore } from '@/stores/authStore';
 import ScreenWrapper from '@/components/layout/ScreenWrapper';
 import TextInput from '@/components/ui/TextInput';
 import Button from '@/components/ui/Button';
@@ -25,13 +24,14 @@ const SignInScreen = () => {
     setError('');
     try {
       await signInWithEmail(email.trim(), password);
-      router.replace('/(app)/(session)');
+      // Navigation is handled by the (auth) layout redirect once the auth
+      // store updates with the signed-in user — navigating here manually
+      // raced ahead of the store and bounced users back to sign-in.
     } catch (e: any) {
       const msg = e?.code === 'auth/invalid-credential'
         ? 'Invalid email or password'
         : e?.message || 'Sign in failed';
       setError(msg);
-    } finally {
       setLoading(false);
     }
   };

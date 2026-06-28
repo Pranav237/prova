@@ -184,6 +184,8 @@ export async function processMessage(args: {
   userMessage?: string;
   isSessionStart?: boolean;
   isResume?: boolean;
+  /** Stable per-turn key so retries don't trigger a second model call. */
+  turnId?: string;
 }) {
   const data = await call<ProcessMessageResult>(
     'processMessage',
@@ -192,6 +194,7 @@ export async function processMessage(args: {
       userMessage: args.userMessage,
       isSessionStart: args.isSessionStart ?? false,
       isResume: args.isResume ?? false,
+      turnId: args.turnId,
     },
     { timeoutMs: 90_000 }
   );

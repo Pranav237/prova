@@ -79,6 +79,11 @@ export const subscribeToSession = (
         return;
       }
       callback({ id: snap.id, ...snap.data() } as Session);
+    },
+    (error) => {
+      // A listener error (permissions, network) otherwise fails silently and
+      // freezes the screen waiting for an update that never comes.
+      console.error('subscribeToSession listener error:', error);
     }
   );
 };
@@ -114,10 +119,16 @@ export const subscribeToMessages = (
     collection(db, 'users', userId, 'sessions', sessionId, 'messages'),
     orderBy('createdAt', 'asc')
   );
-  return onSnapshot(q, (snap) => {
-    const messages = snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Message);
-    callback(messages);
-  });
+  return onSnapshot(
+    q,
+    (snap) => {
+      const messages = snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Message);
+      callback(messages);
+    },
+    (error) => {
+      console.error('subscribeToMessages listener error:', error);
+    }
+  );
 };
 
 export const updateSession = async (

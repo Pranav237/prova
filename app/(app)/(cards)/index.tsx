@@ -1,5 +1,13 @@
 import { useCallback, useState } from 'react';
-import { View, Text, FlatList, StyleSheet, RefreshControl } from 'react-native';
+import {
+  View,
+  Text,
+  FlatList,
+  StyleSheet,
+  RefreshControl,
+  ActivityIndicator,
+  TouchableOpacity,
+} from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import ScreenWrapper from '@/components/layout/ScreenWrapper';
 import CardThumbnail from '@/components/cards/CardThumbnail';
@@ -76,7 +84,11 @@ const CardsScreen = () => {
     [router]
   );
 
-  const data = [...sessions, 'empty' as const];
+  // Only append the "start a new session" slot once there's at least one card.
+  // With no cards we leave the list empty so ListEmptyComponent (the rich
+  // empty / error / loading states) actually renders.
+  const data: Array<Session | 'empty'> =
+    sessions.length > 0 ? [...sessions, 'empty' as const] : [];
 
   return (
     <ScreenWrapper>
@@ -105,16 +117,38 @@ const CardsScreen = () => {
           />
         }
         ListEmptyComponent={
-          sessions.length === 0 && !loading ? (
+          loading ? (
+            <View style={styles.emptyState}>
+              <ActivityIndicator color={colors.purple.DEFAULT} />
+            </View>
+          ) : error ? (
+            <View style={styles.emptyState}>
+              <Text style={styles.emptyTitle}>Couldn&apos;t load your cards</Text>
+              <Text style={styles.emptyText}>{error}</Text>
+              <TouchableOpacity
+                style={styles.emptyButton}
+                onPress={fetchCards}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.emptyButtonText}>Try again</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
             <View style={styles.emptyState}>
               <Text style={styles.emptyTitle}>Your collection awaits</Text>
               <Text style={styles.emptyText}>
                 Each session produces a card, a snapshot of who you were in
                 that conversation. Start your first session to begin.
               </Text>
-              {error && <Text style={styles.errorText}>{error}</Text>}
+              <TouchableOpacity
+                style={styles.emptyButton}
+                onPress={() => router.push('/(app)/(session)/new')}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.emptyButtonText}>Start your first session</Text>
+              </TouchableOpacity>
             </View>
-          ) : null
+          )
         }
       />
     </ScreenWrapper>
@@ -166,11 +200,19 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 20,
   },
-  errorText: {
-    ...typography.body.small,
-    color: colors.danger,
-    textAlign: 'center',
-    marginTop: 16,
+  emptyButton: {
+    marginTop: 24,
+    paddingVertical: 12,
+    paddingHorizontal: 22,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.purple.border,
+    backgroundColor: colors.purple.faint,
+  },
+  emptyButtonText: {
+    fontFamily: 'DMSans-Medium',
+    fontSize: 13,
+    color: colors.purple.soft,
   },
 });
 

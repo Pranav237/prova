@@ -3,63 +3,128 @@ import { generatePDFContent } from './generatePDF';
 import { generateCardData } from './generateCard';
 import { defineEndpoint, HttpError, requireString } from './http';
 
+/** A finalize lock older than this is considered stale (a crashed attempt). */
+const STALE_LOCK_MS = 5 * 60 * 1000;
+
+/** Best-effort signed read URL for a stored art file. Returns '' on failure. */
+async function signedArtUrl(ref?: string): Promise<string> {
+  if (!ref) return '';
+  try {
+    const bucket = admin.storage().bucket();
+    const file = bucket.file(ref);
+    const [url] = await file.getSignedUrl({
+      action: 'read',
+      expires: Date.now() + 7 * 24 * 60 * 60 * 1000,
+    });
+    return url;
+  } catch {
+    return '';
+  }
+}
+
 export const endSession = defineEndpoint(
   async ({ uid, body }) => {
     const sessionId = requireString(body, 'sessionId');
 
     const db = admin.firestore();
+    const sessionRef = db.doc(`users/${uid}/sessions/${sessionId}`);
 
-    const sessionDoc = await db.doc(`users/${uid}/sessions/${sessionId}`).get();
+    // Acquire a finalize lock (or short-circuit) atomically. Without this, two
+    // concurrent calls (two devices/tabs, or a retry overlapping the original)
+    // could both run the expensive PDF + card AI pipeline and double-increment
+    // the session count.
+    const gate = await db.runTransaction(async (tx) => {
+      const snap = await tx.get(sessionRef);
+      if (!snap.exists) {
+        return { kind: 'missing' as const };
+      }
+      const data = snap.data() ?? {};
 
-    if (!sessionDoc.exists) {
+      // Already finished — nothing to regenerate.
+      if (data.status === 'complete' && data.cardTitle) {
+        return { kind: 'complete' as const, data };
+      }
+
+      // Don't finalize a session that never had a conversation.
+      if (!(typeof data.exchangeCount === 'number' && data.exchangeCount >= 1)) {
+        return { kind: 'empty' as const };
+      }
+
+      // Another finalize is in progress and hasn't gone stale.
+      if (
+        data.finalizing === true &&
+        typeof data.finalizingAt === 'number' &&
+        Date.now() - data.finalizingAt < STALE_LOCK_MS
+      ) {
+        return { kind: 'locked' as const };
+      }
+
+      tx.update(sessionRef, { finalizing: true, finalizingAt: Date.now() });
+      return { kind: 'acquired' as const, data };
+    });
+
+    if (gate.kind === 'missing') {
       throw new HttpError(404, 'not-found', 'Session not found.');
     }
 
-    const existing = sessionDoc.data() ?? {};
+    if (gate.kind === 'empty') {
+      throw new HttpError(
+        400,
+        'failed-precondition',
+        'This session has no conversation to finish yet.'
+      );
+    }
 
-    // If the session is already complete, return the existing card data so the
-    // client can navigate to reveal without re-running expensive AI calls.
-    if (existing.status === 'complete' && existing.cardTitle) {
-      let cardArtUrl = '';
-      if (existing.cardArtRef) {
-        try {
-          const bucket = admin.storage().bucket();
-          const file = bucket.file(existing.cardArtRef);
-          const [url] = await file.getSignedUrl({
-            action: 'read',
-            expires: Date.now() + 7 * 24 * 60 * 60 * 1000,
-          });
-          cardArtUrl = url;
-        } catch {
-          // ignore; client can still render with metallicColor
-        }
-      }
+    if (gate.kind === 'locked') {
+      throw new HttpError(
+        409,
+        'already-finalizing',
+        'This session is already being finished. Please wait a moment.'
+      );
+    }
+
+    if (gate.kind === 'complete') {
+      const existing = gate.data;
       return {
         cardTitle: existing.cardTitle,
-        cardArtUrl,
+        cardArtUrl: await signedArtUrl(existing.cardArtRef),
         cardMetallicColor: existing.cardMetallicColor || '#A882FF',
         pdfUrl: '',
       };
     }
 
+    // gate.kind === 'acquired' — we hold the lock.
+    const existing = gate.data;
+
     try {
-      const pdfOutput = await generatePDFContent(uid, sessionId);
+      // Reuse a PDF persisted by a prior (failed) attempt so a later card
+      // failure never forces us to re-run the expensive PDF generation.
+      let pdfOutput = existing.pdfOutput as
+        | Record<string, unknown>
+        | undefined;
+      if (!pdfOutput) {
+        pdfOutput = (await generatePDFContent(uid, sessionId)) as unknown as Record<
+          string,
+          unknown
+        >;
+        // Persist immediately, before the card step can fail.
+        await sessionRef.update({ pdfOutput });
+      }
 
-      const cardData = await generateCardData(
-        uid,
-        sessionId,
-        pdfOutput as unknown as Record<string, unknown>
-      );
+      const cardData = await generateCardData(uid, sessionId, pdfOutput);
 
-      await db.doc(`users/${uid}/sessions/${sessionId}`).update({
+      await sessionRef.update({
         status: 'complete',
         completedAt: admin.firestore.FieldValue.serverTimestamp(),
         pdfOutput,
         cardTitle: cardData.title,
         cardArtRef: cardData.artRef,
         cardMetallicColor: cardData.metallicColor,
+        finalizing: false,
       });
 
+      // We only reach this point on the transition to 'complete' (the early
+      // 'complete' gate returns above), so the count increments exactly once.
       await db.doc(`users/${uid}`).update({
         sessionCount: admin.firestore.FieldValue.increment(1),
       });
@@ -70,28 +135,21 @@ export const endSession = defineEndpoint(
         await db.doc(`users/${uid}`).update({ hasCompletedOnboarding: true });
       }
 
-      let cardArtUrl = '';
-      try {
-        const bucket = admin.storage().bucket();
-        const file = bucket.file(cardData.artRef);
-        const [url] = await file.getSignedUrl({
-          action: 'read',
-          expires: Date.now() + 7 * 24 * 60 * 60 * 1000,
-        });
-        cardArtUrl = url;
-      } catch {
-        console.warn('Could not generate signed URL for card art');
-      }
-
       return {
         cardTitle: cardData.title,
-        cardArtUrl,
+        cardArtUrl: await signedArtUrl(cardData.artRef),
         cardMetallicColor: cardData.metallicColor,
         pdfUrl: '',
       };
     } catch (error) {
       console.error('Error ending session:', error);
-      // Do NOT flip status to 'incomplete' here so the client can safely retry.
+      // Release the lock so the client can retry; any pdfOutput we persisted
+      // stays so the retry skips PDF regeneration.
+      try {
+        await sessionRef.update({ finalizing: false });
+      } catch {
+        // ignore — lock will go stale and free itself after STALE_LOCK_MS
+      }
       throw new HttpError(
         500,
         'internal',

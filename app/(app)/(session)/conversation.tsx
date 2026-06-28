@@ -117,6 +117,11 @@ const ConversationScreen = () => {
   const bootstrapInFlight = useRef(false);
   /** Prevents the resume effect from re-firing while a resume is mid-flight. */
   const resumeInFlight = useRef(false);
+  /** Synchronous guard against a double-tap on send before phase updates. */
+  const sendInFlight = useRef(false);
+  /** Tracks whether we ever held a sessionId, so a later null (session reset
+   *  on completion/abandon) doesn't get mistaken for "opened with no session". */
+  const everHadSession = useRef(false);
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [messagesLoaded, setMessagesLoaded] = useState(false);
@@ -179,12 +184,29 @@ const ConversationScreen = () => {
     return unsub;
   }, [firebaseUser, sessionId]);
 
+  /* ------------------------- Missing-session guard ------------------ */
+
+  // If we land here with no session in the store and never had one (e.g. a
+  // cold deep-link or lost state), there's nothing to converse with — send the
+  // user back to the dashboard. Sessions that *become* null after completion
+  // or abandonment are handled by the remote-status effect below.
+  useEffect(() => {
+    if (sessionId) {
+      everHadSession.current = true;
+      return;
+    }
+    if (!everHadSession.current) {
+      router.replace('/(app)/(session)');
+    }
+  }, [sessionId, router]);
+
   /* ------------------------- Reset on unmount ----------------------- */
 
   useEffect(() => {
     return () => {
       bootstrapInFlight.current = false;
       resumeInFlight.current = false;
+      sendInFlight.current = false;
     };
   }, []);
 
@@ -199,6 +221,7 @@ const ConversationScreen = () => {
     if (messages.length > 0) return;
     if (bootstrapInFlight.current) return;
     if (phase === 'closing') return;
+    if (errorText) return; // wait for an explicit retry after a failure
 
     bootstrapInFlight.current = true;
 
@@ -209,6 +232,7 @@ const ConversationScreen = () => {
         const result = await processMessageApi({
           sessionId,
           isSessionStart: true,
+          turnId: '__start__',
         });
         await addMessage(firebaseUser.uid, sessionId, {
           role: 'prova',
@@ -223,7 +247,7 @@ const ConversationScreen = () => {
         setPhase('ready');
       }
     })();
-  }, [firebaseUser, sessionId, messages.length, messagesLoaded, phase]);
+  }, [firebaseUser, sessionId, messages.length, messagesLoaded, phase, errorText]);
 
   /* ------------------------- Auto resume dangling user msg ----------- */
 
@@ -241,7 +265,13 @@ const ConversationScreen = () => {
       setPhase('sending');
       setErrorText(null);
       try {
-        const result = await processMessageApi({ sessionId, isResume: true });
+        // The dangling user message is the last one; key the turn on its id so
+        // a resume after a timed-out send reuses the cached reply.
+        const result = await processMessageApi({
+          sessionId,
+          isResume: true,
+          turnId: lastMessage?.id,
+        });
         const { response, meta } = result.data;
         await addMessage(firebaseUser.uid, sessionId, {
           role: 'prova',
@@ -265,6 +295,7 @@ const ConversationScreen = () => {
     sessionId,
     messagesLoaded,
     isDangling,
+    lastMessage,
     phase,
     errorText,
     router,
@@ -383,13 +414,17 @@ const ConversationScreen = () => {
     async (text: string) => {
       if (!firebaseUser || !sessionId) return;
       if (phase !== 'ready') return;
+      // `phase` updates asynchronously, so a fast double-tap can slip two sends
+      // through before the input disables. Guard synchronously with a ref.
+      if (sendInFlight.current) return;
+      sendInFlight.current = true;
 
       setPhase('sending');
       setErrorText(null);
       let isClosingNow = false;
 
       try {
-        await addMessage(firebaseUser.uid, sessionId, {
+        const userMessageId = await addMessage(firebaseUser.uid, sessionId, {
           role: 'user',
           content: text,
         });
@@ -397,6 +432,7 @@ const ConversationScreen = () => {
         const result = await processMessageApi({
           sessionId,
           userMessage: text,
+          turnId: userMessageId,
         });
 
         const { response, meta } = result.data;
@@ -415,6 +451,7 @@ const ConversationScreen = () => {
         console.error('Failed to process message:', e);
         setErrorText(describeError(e));
       } finally {
+        sendInFlight.current = false;
         if (!isClosingNow) setPhase('ready');
       }
     },

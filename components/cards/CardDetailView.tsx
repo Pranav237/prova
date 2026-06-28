@@ -96,7 +96,12 @@ const CardDetailView = () => {
     let cancelled = false;
 
     const loadSession = async () => {
-      if (!firebaseUser || !sessionId) return;
+      if (!firebaseUser || !sessionId) {
+        // Nothing to load (missing route param or signed out) — don't hang on
+        // the spinner; fall through to the not-found state.
+        if (!cancelled) setLoading(false);
+        return;
+      }
       try {
         const s = await getSession(firebaseUser.uid, sessionId);
         if (!cancelled) setSession(s);
@@ -141,8 +146,11 @@ const CardDetailView = () => {
   /* ----------------------- Save card image ------------------- */
 
   const saveCardImage = useCallback(async () => {
-    const perm = await MediaLibrary.requestPermissionsAsync();
-    if (perm.status !== 'granted') {
+    // Request add-only (write) access. Saving never needs to read the library,
+    // so this avoids the iOS "limited photos" selection prompt and the
+    // 'limited' status edge case — `granted` covers add-only access too.
+    const perm = await MediaLibrary.requestPermissionsAsync(true);
+    if (!perm.granted) {
       throw new Error(
         'Photo library access was denied. Enable it in Settings to save cards.'
       );
@@ -308,11 +316,15 @@ const CardDetailView = () => {
     try {
       if (saveMode === 'pdf') {
         await savePdf();
+        // The OS share sheet can't tell us whether the user actually completed
+        // the action (it resolves on dismiss too), so we don't claim "Saved".
+        // The share sheet itself is the confirmation.
+        setSaveState('idle');
       } else {
         await saveCardImage();
+        setSaveState('saved');
+        setTimeout(() => setSaveState('idle'), 2500);
       }
-      setSaveState('saved');
-      setTimeout(() => setSaveState('idle'), 2500);
     } catch (e) {
       console.error('Failed to save:', e);
       setSaveState('error');
@@ -362,6 +374,30 @@ const CardDetailView = () => {
       <ScreenWrapper>
         <View style={styles.loadingContainer}>
           <ActivityIndicator color={colors.purple.DEFAULT} />
+        </View>
+      </ScreenWrapper>
+    );
+  }
+
+  if (!session) {
+    return (
+      <ScreenWrapper>
+        <View style={styles.header}>
+          <TouchableOpacity
+            onPress={handleBack}
+            style={styles.headerButton}
+            hitSlop={8}
+          >
+            <ChevronLeft size={18} color={colors.purple.soft} />
+            <Text style={styles.headerButtonText}>Back</Text>
+          </TouchableOpacity>
+        </View>
+        <View style={styles.notFound}>
+          <Text style={styles.notFoundTitle}>Card not found</Text>
+          <Text style={styles.notFoundText}>
+            This session may have been removed, or it hasn&apos;t finished
+            generating yet.
+          </Text>
         </View>
       </ScreenWrapper>
     );
@@ -479,6 +515,25 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  notFound: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 40,
+    paddingBottom: 80,
+  },
+  notFoundTitle: {
+    fontFamily: 'InstrumentSerif-Regular',
+    fontSize: 20,
+    color: colors.white,
+    marginBottom: 10,
+  },
+  notFoundText: {
+    ...typography.body.small,
+    color: colors.text.muted,
+    textAlign: 'center',
+    lineHeight: 20,
   },
   header: {
     flexDirection: 'row',
